@@ -1,88 +1,6 @@
-import { BANK, TOPIC_ORDER } from "./answers";
+import { BANK, VARIANTS } from "./answers";
 
 (function () {
-  // index questions by topic
-  const byTopic = {};
-  BANK.forEach((q, i) => {
-    (byTopic[q.t] = byTopic[q.t] || []).push(i);
-  });
-
-  // Build 4 variants by interleaving topics round-robin so each variant
-  // samples broadly across the whole syllabus, then a 5th "full mock" pool.
-  function buildVariant(offset, count) {
-    const idxs = [];
-    let cursor = offset;
-    const pools = TOPIC_ORDER.map((t) => byTopic[t].slice());
-    let exhausted = 0;
-    while (idxs.length < count && exhausted < pools.length) {
-      exhausted = 0;
-      for (let p = 0; p < pools.length; p++) {
-        const pool = pools[(p + cursor) % pools.length];
-        if (pool.length === 0) {
-          exhausted++;
-          continue;
-        }
-        idxs.push(pool.shift());
-        if (idxs.length >= count) break;
-      }
-      cursor++;
-    }
-    return idxs;
-  }
-
-  const VARIANTS = [
-    {
-      id: "v1",
-      name: "Variant I",
-      desc: "Legal basis, classification of emergencies, and the WMD/nuclear damage chain.",
-      count: 24,
-      seedOffset: 0,
-    },
-    {
-      id: "v2",
-      name: "Variant II",
-      desc: "Chemical & biological agents, sheltering, evacuation, and monitoring systems.",
-      count: 26,
-      seedOffset: 1,
-    },
-    {
-      id: "v3",
-      name: "Variant III",
-      desc: "Rescue operations, first aid fundamentals, bleeding, burns, and trauma response.",
-      count: 25,
-      seedOffset: 2,
-    },
-    {
-      id: "v4",
-      name: "Variant IV",
-      desc: "Drowning, poisoning, CPR protocol, antidotes, and the civil defense medical kit.",
-      count: 25,
-      seedOffset: 3,
-    },
-    {
-      id: "vfull",
-      name: "Full Mock Exam",
-      desc: "A randomized 30-question draw from the entire 100-question bank, every retake.",
-      count: 30,
-      seedOffset: 4,
-      isFull: true,
-    },
-  ];
-
-  function getVariantIndexSets() {
-    // deterministic-ish split for v1-v4 so coverage of all 100 is guaranteed across them combined,
-    // but order/sample within is randomized at quiz-start time.
-    const all = BANK.map((_, i) => i);
-    const groups = [[], [], [], []];
-    TOPIC_ORDER.forEach((t, ti) => {
-      byTopic[t].forEach((qi, j) => {
-        groups[(ti + j) % 4].push(qi);
-      });
-    });
-    return groups;
-  }
-  const FIXED_GROUPS = getVariantIndexSets();
-
   function shuffle(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -92,26 +10,28 @@ import { BANK, TOPIC_ORDER } from "./answers";
     return a;
   }
 
+  function normalizeQuestion(src, topic) {
+    const answerIndex = "ABCD".indexOf(src.answer);
+    const order = shuffle(src.options.map((_, i) => i));
+    return {
+      topic,
+      text: src.q,
+      options: order.map((i) => src.options[i]),
+      correctIndex: order.indexOf(answerIndex),
+      explain: src.explain || "",
+    };
+  }
+
   function pickQuestionsFor(variant) {
-    let pool;
-    if (variant.isFull) {
-      pool = shuffle(BANK.map((_, i) => i));
-    } else {
-      const groupIdx = VARIANTS.findIndex((v) => v.id === variant.id);
-      pool = shuffle(FIXED_GROUPS[groupIdx]);
-    }
-    const chosen = pool.slice(0, Math.min(variant.count, pool.length));
-    // build runtime question objects with shuffled option order
-    return chosen.map((origIdx) => {
-      const src = BANK[origIdx];
-      const order = shuffle(src.o.map((_, i) => i));
-      return {
-        topic: src.t,
-        text: src.q,
-        options: order.map((i) => src.o[i]),
-        correctIndex: order.indexOf(src.a),
-        explain: src.e,
-      };
+    const pool = Array.isArray(variant.questions) ? variant.questions : BANK;
+    const chosen = shuffle(pool.map((_, i) => i)).slice(
+      0,
+      Math.min(variant.count || pool.length, pool.length),
+    );
+
+    return chosen.map((idx) => {
+      const src = pool[idx];
+      return normalizeQuestion(src, variant.name);
     });
   }
 
@@ -246,7 +166,7 @@ import { BANK, TOPIC_ORDER } from "./answers";
     shell.appendChild(
       el("div", { class: "cd-eyebrow" }, [
         el("span", { class: "dot" }),
-        text("CIVIL DEFENSE \u2014 EXAM PREP"),
+        text("PROCESS MODELING \u2014 EXAM PREP"),
       ]),
     );
     shell.appendChild(
@@ -255,7 +175,7 @@ import { BANK, TOPIC_ORDER } from "./answers";
     shell.appendChild(
       el("p", { class: "cd-sub" }, [
         text(
-          "Five retakeable variants pulled from the full 100-question bank. Questions and answer order reshuffle every attempt, so no two runs look identical.",
+          "Four retakeable variants covering the full syllabus. Each attempt reshuffles the question order and option order for fresh practice.",
         ),
       ]),
     );
@@ -296,7 +216,7 @@ import { BANK, TOPIC_ORDER } from "./answers";
     shell.appendChild(
       el("p", { class: "cd-foot-note" }, [
         text(
-          "Tip: run the four topic variants first to drill weak areas, then take the Full Mock Exam as a final check\u2014it draws 30 random questions from across all 100 source items.",
+          "Tip: work through Variants A to D in order to cover requirements, BPMN, and UML topics steadily and build confidence across the full subject.",
         ),
       ]),
     );
@@ -413,12 +333,16 @@ import { BANK, TOPIC_ORDER } from "./answers";
     const rightBtns = el("div", {
       style: "display:flex; gap:8px; align-items:center;",
     });
+    const compact = window.innerWidth <= 400;
+    const exitLabel = compact ? "Exit" : "Exit to menu";
+    const nextLabel = current === total - 1
+      ? compact ? "Finish" : "Finish exam"
+      : compact ? "Next" : "Next question";
     rightBtns.appendChild(
       el("button", { class: "cd-btn-ghost", onClick: goHome }, [
-        text("Exit to menu"),
+        text(exitLabel),
       ]),
     );
-    const nextLabel = current === total - 1 ? "Finish exam" : "Next question";
     const nextBtn = el(
       "button",
       { class: "cd-btn cd-btn-primary", onClick: nextQuestion },
